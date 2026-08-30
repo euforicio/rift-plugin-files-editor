@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { experimental_SourceCode as SourceCode } from "@get-bb/plugin-sdk/app";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import { formatBytes, languageLabel } from "@/lib/file-kind";
+import { findMatches, matchIndexAt, stepMatch } from "@/lib/find";
+import { FindBar } from "./FindBar";
 import type { FileTab } from "./use-file-tabs";
 
 export interface FileViewProps {
@@ -12,6 +14,19 @@ export interface FileViewProps {
   onReload: () => void;
   onOverwrite: () => void;
   onRetry: () => void;
+  /**
+   * Bumped by the surface when ⌘F is pressed. A nonce rather than a boolean so
+   * a repeat press with the bar already open re-focuses and reselects it.
+   */
+  findRequest: number;
+  onCloseFind: () => void;
+}
+
+/** A range to select in the editor; `nonce` re-applies an unchanged range. */
+interface EditorSelection {
+  start: number;
+  end: number;
+  nonce: number;
 }
 
 export function FileView({
@@ -21,6 +36,8 @@ export function FileView({
   onReload,
   onOverwrite,
   onRetry,
+  findRequest,
+  onCloseFind,
 }: FileViewProps) {
   const file = tab.file;
 
@@ -72,25 +89,137 @@ export function FileView({
   }
 
   return (
+    <TextFileView
+      tab={tab}
+      content={tab.draft ?? file.content}
+      onChangeDraft={onChangeDraft}
+      onSave={onSave}
+      onReload={onReload}
+      onOverwrite={onOverwrite}
+      findRequest={findRequest}
+      onCloseFind={onCloseFind}
+    />
+  );
+}
+
+/**
+ * The text branch, split out so find state can use hooks: the cases above it
+ * (loading, error, image, binary) return early, and a hook cannot sit behind
+ * a conditional return.
+ */
+function TextFileView({
+  tab,
+  content,
+  onChangeDraft,
+  onSave,
+  onReload,
+  onOverwrite,
+  findRequest,
+  onCloseFind,
+}: {
+  tab: FileTab;
+  content: string;
+  onChangeDraft: (path: string, draft: string) => void;
+  onSave: () => void;
+  onReload: () => void;
+  onOverwrite: () => void;
+  findRequest: number;
+  onCloseFind: () => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [caseSensitive, setCaseSensitive] = useState(false);
+  const [index, setIndex] = useState(-1);
+  const [selection, setSelection] = useState<EditorSelection | null>(null);
+  const caretRef = useRef(0);
+  const nonceRef = useRef(0);
+
+  const isFindOpen = findRequest > 0;
+
+  // Each file gets its own find session. Without this, switching tabs would
+  // leave the previous file's query counting matches in the new one.
+  useEffect(() => {
+    setQuery("");
+    setIndex(-1);
+    setSelection(null);
+    caretRef.current = 0;
+  }, [tab.path]);
+
+  const result = useMemo(
+    () => (isFindOpen ? findMatches(content, query, caseSensitive) : null),
+    [caseSensitive, content, isFindOpen, query],
+  );
+  const matches = result?.matches ?? [];
+
+  const select = useCallback(
+    (next: number) => {
+      setIndex(next);
+      const match = matches[next];
+      if (match === undefined) return;
+      caretRef.current = match.start;
+      nonceRef.current += 1;
+      setSelection({ start: match.start, end: match.end, nonce: nonceRef.current });
+    },
+    [matches],
+  );
+
+  // Editing the query restarts the search from where the caret already is,
+  // rather than jumping to the top of the file on every keystroke.
+  useEffect(() => {
+    if (!isFindOpen) return;
+    setIndex(matchIndexAt(matches, caretRef.current));
+    // `matches` is derived from the query, case flag and content; re-running on
+    // the derived value would loop through the setIndex above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, caseSensitive, content, isFindOpen]);
+
+  const step = useCallback(
+    (direction: 1 | -1) => select(stepMatch(index, matches.length, direction)),
+    [index, matches.length, select],
+  );
+
+  const active = matches[index];
+
+  return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <SaveNotice
-        tab={tab}
-        onReload={onReload}
-        onOverwrite={onOverwrite}
-      />
+      {isFindOpen ? (
+        <FindBar
+          query={query}
+          onQueryChange={setQuery}
+          caseSensitive={caseSensitive}
+          onCaseSensitiveChange={setCaseSensitive}
+          index={index}
+          total={matches.length}
+          truncated={result?.truncated ?? false}
+          onStep={step}
+          onClose={onCloseFind}
+          focusRequest={findRequest}
+        />
+      ) : null}
+      <SaveNotice tab={tab} onReload={onReload} onOverwrite={onOverwrite} />
       {tab.isEditing ? (
         <CodeEditor
           path={tab.path}
-          value={tab.draft ?? file.content}
+          value={content}
           onChange={(next) => onChangeDraft(tab.path, next)}
           onSave={onSave}
+          selection={selection}
+          onCaretChange={(position) => {
+            caretRef.current = position;
+          }}
         />
       ) : (
         <div className="min-h-0 flex-1 overflow-auto">
           <SourceCode
-            content={file.content}
+            content={content}
             path={tab.path}
             overflow="scroll"
+            // The host viewer owns scroll-into-view, so highlighting the line
+            // is also what reveals it.
+            highlightedLines={
+              active === undefined
+                ? null
+                : { start: active.line, end: active.line }
+            }
             className="min-h-full text-[13px]"
           />
         </div>
@@ -109,11 +238,15 @@ function CodeEditor({
   value,
   onChange,
   onSave,
+  selection,
+  onCaretChange,
 }: {
   path: string;
   value: string;
   onChange: (next: string) => void;
   onSave: () => void;
+  selection: EditorSelection | null;
+  onCaretChange: (position: number) => void;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const gutterRef = useRef<HTMLPreElement | null>(null);
@@ -129,6 +262,27 @@ function CodeEditor({
   useEffect(() => {
     textareaRef.current?.focus();
   }, [path]);
+
+  // Reveal a find hit: select it, then scroll the caret's line to the middle.
+  // `selectionStart` alone does not scroll a textarea, and blur/refocus would
+  // steal the keyboard back from the find field.
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (textarea === null || selection === null) return;
+    textarea.setSelectionRange(selection.start, selection.end);
+
+    const lineHeight = 20;
+    const linesAbove = value.slice(0, selection.start).split("\n").length - 1;
+    const target =
+      linesAbove * lineHeight - textarea.clientHeight / 2 + lineHeight;
+    textarea.scrollTop = Math.max(0, target);
+    if (gutterRef.current !== null) {
+      gutterRef.current.scrollTop = textarea.scrollTop;
+    }
+    // `value` is read for the line count only; re-running on every keystroke
+    // would fight the caret. The nonce is what makes a repeat hit re-apply.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selection?.nonce]);
 
   return (
     <div className="flex min-h-0 flex-1 overflow-hidden bg-background font-mono text-[13px] leading-5">
@@ -151,7 +305,11 @@ function CodeEditor({
             gutterRef.current.scrollTop = event.currentTarget.scrollTop;
           }
         }}
-        onChange={(event) => onChange(event.target.value)}
+        onChange={(event) => {
+          onCaretChange(event.target.selectionStart);
+          onChange(event.target.value);
+        }}
+        onSelect={(event) => onCaretChange(event.currentTarget.selectionStart)}
         onKeyDown={(event) => {
           if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
             event.preventDefault();

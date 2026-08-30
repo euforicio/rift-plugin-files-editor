@@ -73,6 +73,9 @@ export function Workspace({
   // panel then collapses it once you pick a file, to give the editor the width.
   const [isExplorerOpen, setIsExplorerOpen] = useState(true);
   const [isQuickOpen, setIsQuickOpen] = useState(false);
+  // A counter, not a flag: pressing ⌘F again with the bar already open has to
+  // re-focus and reselect the field, which an unchanged boolean cannot signal.
+  const [findRequest, setFindRequest] = useState(0);
 
   const rootRef = useRef<HTMLDivElement | null>(null);
   const requestRef = useRef(0);
@@ -169,6 +172,7 @@ export function Workspace({
     (path: string) => {
       tabs.open(path);
       onOpenPath(path);
+      setFindRequest(0);
       // The element that held focus is routinely the one the open destroys —
       // the empty state's button, or the previous file's textarea. Recover on
       // both surfaces, or the root's ⌘P / ⌘S handlers stop receiving keys.
@@ -220,6 +224,13 @@ export function Workspace({
       setIsQuickOpen(true);
       return;
     }
+    if (isAccel && event.key.toLowerCase() === "f" && !event.shiftKey) {
+      // Claims the browser's own find, which cannot see a virtualized tree or
+      // the textarea's unrendered lines anyway.
+      event.preventDefault();
+      if (activeTab?.file?.kind === "text") setFindRequest((n) => n + 1);
+      return;
+    }
     if (isAccel && event.key.toLowerCase() === "s") {
       event.preventDefault();
       if (
@@ -234,6 +245,11 @@ export function Workspace({
     if (event.key === "Escape" && isQuickOpen) {
       event.preventDefault();
       setIsQuickOpen(false);
+      return;
+    }
+    if (event.key === "Escape" && findRequest > 0) {
+      event.preventDefault();
+      setFindRequest(0);
     }
   };
 
@@ -443,6 +459,11 @@ export function Workspace({
             onReload={() => tabs.reload()}
             onOverwrite={tabs.overwrite}
             onRetry={tabs.retry}
+            findRequest={findRequest}
+            onCloseFind={() => {
+              setFindRequest(0);
+              restoreFocus();
+            }}
           />
         )}
       </div>

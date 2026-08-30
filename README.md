@@ -11,9 +11,14 @@ whole file in the middle.
 - **A Files tab beside a thread** — right panel → new tab → *Project files*.
   Pinned to that thread's workspace, so it shows the files the agent in that
   conversation is editing.
-- **Search at the top of the tree.** Type and the tree prunes to matching paths
-  with every directory above them opened. <kbd>⌘P</kbd> opens the ranked
-  go-to-file palette instead, with arrow keys and Enter.
+- **Two searches.** At the top of the tree, type to prune it to matching paths
+  with every directory above them opened; <kbd>⌘P</kbd> opens the ranked
+  go-to-file palette instead. Inside a file, <kbd>⌘F</kbd> finds text: match
+  count, <kbd>Enter</kbd> / <kbd>⇧Enter</kbd> to step, `Aa` for case, and the
+  hit is revealed whether you are reading or editing.
+- **Project, then workspace.** Two dependent pickers — choose the project, then
+  its checkout or one of its worktrees by branch name. Picking a project lands
+  on its checkout.
 - **Click a file and it opens in full** — its own tab, the complete contents,
   syntax-highlighted by BB's own source renderer, in your BB code theme.
 - **Edit and save.** The pencil switches the pane to an editor;
@@ -59,7 +64,7 @@ big enough to truncate a listing on their own. Remove one to browse it, or add
 ## Install
 
 ```sh
-bb plugin install git:https://github.com/abdoutelb/bb-plugin-files-editor.git@^0.1.0
+bb plugin install git:https://github.com/abdoutelb/bb-plugin-files-editor.git@^0.1.2
 ```
 
 That tracks the 0.x line, so `bb plugin outdated` and `bb plugin update` pick up
@@ -73,14 +78,14 @@ bb plugin install /path/to/bb-plugin-files-editor
 
 ```sh
 npm install --include=dev
-npm test                              # pure logic: tree building, ranking, path safety
+npm test                              # pure logic: trees, ranking, find, paths
 npm run typecheck
 bb plugin dev                         # rebuild + reload on save
 ```
 
 `lib/` holds the logic worth testing on its own — tree assembly, the fuzzy
-ranker, workspace-relative path resolution, route encoding. `server.ts` is
-mostly wiring; the components are the view.
+ranker, in-file search, workspace grouping, workspace-relative path resolution,
+route encoding. `server.ts` is mostly wiring; the components are the view.
 
 ## Limits
 
@@ -92,9 +97,11 @@ mostly wiring; the components are the view.
   Past that it prints what fits — whole lines, for a listing — and says how much
   it cut. BB discards an oversize result rather than truncating it, so the
   clipping is the difference between a partial answer and none.
-- The editor is a textarea with a gutter, not a code editor: no completion, no
-  multiple cursors, no find-in-file. For those, BB's builtin **File Editor**
-  (Monaco) plugin claims the file-preview surface — the ↗ button in the toolbar
-  hands the current file to it.
+- The editor is a textarea with a gutter, not a code editor: no completion and
+  no multiple cursors, and find is literal text — no regex, no replace. For
+  those, BB's builtin **File Editor** (Monaco) plugin claims the file-preview
+  surface; the ↗ button in the toolbar hands it the current file.
+- Reading, a find hit highlights its whole line, because line ranges are what
+  BB's source viewer accepts. Editing selects the exact match.
 - Files over 4 MB open read-only.
 - The tree does not create, rename, or delete files.
