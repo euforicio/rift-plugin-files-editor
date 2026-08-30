@@ -4,6 +4,11 @@ A file explorer and editor for the workspace behind a bb thread, laid out the
 way an editor is: a searchable tree on the left, tabs across the top, and the
 whole file in the middle.
 
+![The Files panel: project and worktree pickers over a file tree, tabs, find-in-file, and the open file](https://raw.githubusercontent.com/abdoutelb/bb-plugin-files-editor/main/docs/preview.png)
+
+*An illustration of the layout, not a screenshot — drawn from `docs/preview.html`
+with invented project data, so no real repository or thread titles appear in it.*
+
 ## What it gives you
 
 - **A Files page** in the sidebar (`/plugins/files-editor/files`) with a
