@@ -2,3 +2,9 @@ dist/
 node_modules/
 *.tgz
 .DS_Store
+
+# Verification scratch: never publishable.
+scratch/
+__scratch__/
+*.scratch.*
+*scratch*.config.ts

@@ -1,6 +1,6 @@
 {
   "name": "bb-plugin-files-editor",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A VS Code-style file explorer and editor for the project behind a thread.",
   "type": "module",
   "engines": {
