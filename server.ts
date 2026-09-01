@@ -1,5 +1,7 @@
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   defineRpcContract,
   PLUGIN_CLI_OUTPUT_MAX_BYTES,
@@ -118,6 +120,11 @@ export const rpcContract = defineRpcContract({
         reason: z.string(),
       }),
     ]),
+  },
+  /** A lease for the plugin's own `docs/` directory, for the settings page. */
+  preview: {
+    input: z.null(),
+    output: z.object({ baseUrl: z.string(), expiresAtMs: z.number() }),
   },
   write: {
     input: z
@@ -392,6 +399,37 @@ export default function plugin(bb: BbPluginApi) {
     };
   }
 
+  const PREVIEW_TTL_MS = 60 * 60 * 1000;
+  const PREVIEW_REFRESH_MARGIN_MS = 5 * 60 * 1000;
+  let previewCache: { baseUrl: string; expiresAtMs: number } | null = null;
+
+  /**
+   * `docs/` served over a confined preview URL — the transport BB documents for
+   * plugin images. Sits beside the entry in a source checkout and one level up
+   * from `dist/` in a built install, so both layouts are probed.
+   */
+  async function previewLease() {
+    const now = Date.now();
+    if (
+      previewCache !== null &&
+      previewCache.expiresAtMs - now > PREVIEW_REFRESH_MARGIN_MS
+    ) {
+      return previewCache;
+    }
+    const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+    const root = [
+      path.join(moduleDir, "docs"),
+      path.join(moduleDir, "..", "docs"),
+    ].find((candidate) => existsSync(path.join(candidate, "preview.png")));
+    if (root === undefined) throw new Error("The preview image is not installed.");
+
+    previewCache = await bb.sdk.files.createPreview({
+      rootPath: root,
+      ttlMs: PREVIEW_TTL_MS,
+    });
+    return previewCache;
+  }
+
   bb.rpc.register(rpcContract, {
     async workspaces() {
       // One request gives every project, its checkouts, and the environments
@@ -442,6 +480,8 @@ export default function plugin(bb: BbPluginApi) {
         defaultRef: workspaces[0]?.ref ?? null,
       };
     },
+
+    preview: () => previewLease(),
 
     async resolve({ scope }) {
       return resolveScope(scope);

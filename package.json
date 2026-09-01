@@ -78,6 +78,7 @@
   ],
   "files": [
     "assets",
+    "docs",
     "dist",
     "server.ts",
     "app.tsx",

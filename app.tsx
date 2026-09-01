@@ -156,7 +156,61 @@ function storeLastScope(scope: ScopeRef): void {
   }
 }
 
+/**
+ * Rendered on the plugin's own page in Tools, beside the declarative settings.
+ * BB has no manifest field for a screenshot, so a plugin that wants to show
+ * what it looks like has to draw its own section.
+ */
+function PreviewSection() {
+  const rpc = useRpc<typeof rpcContract>();
+  const [state, setState] = useState<
+    { kind: "loading" } | { kind: "ready"; src: string } | { kind: "error" }
+  >({ kind: "loading" });
+
+  useEffect(() => {
+    let cancelled = false;
+    void rpc
+      .call("preview")
+      .then(({ baseUrl }) => {
+        // A confined, expiring host URL for the plugin's own docs directory —
+        // no network fetch, and nothing outside that directory is reachable.
+        if (!cancelled) setState({ kind: "ready", src: `${baseUrl}/preview.png` });
+      })
+      .catch(() => {
+        if (!cancelled) setState({ kind: "error" });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [rpc]);
+
+  // Silent on failure: an image that will not load is not worth an error box
+  // on a page whose job is the settings below it.
+  if (state.kind !== "ready") return null;
+
+  return (
+    <figure className="space-y-2">
+      <img
+        src={state.src}
+        alt="The Files panel: project and worktree pickers over a file tree, tabs, find-in-file, and the open file"
+        className="w-full rounded-lg border border-border"
+      />
+      <figcaption className="text-xs text-muted-foreground">
+        An illustration of the layout, not a screenshot.
+      </figcaption>
+    </figure>
+  );
+}
+
 export default definePluginApp((app) => {
+  app.slots.settingsSection({
+    id: "preview",
+    title: "What it looks like",
+    description:
+      "A searchable tree on the left, tabs across the top, the whole file in the middle.",
+    component: PreviewSection,
+  });
+
   app.slots.navPanel({
     id: "files",
     title: "Files",
