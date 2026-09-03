@@ -76,6 +76,9 @@ export function Workspace({
   // A counter, not a flag: pressing ⌘F again with the bar already open has to
   // re-focus and reselect the field, which an unchanged boolean cannot signal.
   const [findRequest, setFindRequest] = useState(0);
+  // The file handed to BB's own panel. Tracked separately from the tabs so the
+  // explorer can still show what is open without this surface holding it.
+  const [delegatedPath, setDelegatedPath] = useState<string | null>(null);
 
   const rootRef = useRef<HTMLDivElement | null>(null);
   const requestRef = useRef(0);
@@ -140,6 +143,7 @@ export function Workspace({
   const scopeKind = scope?.kind ?? null;
   const scopeId = scope?.id ?? null;
   useEffect(() => {
+    setDelegatedPath(null);
     loadTree(
       scopeKind === null || scopeId === null ? null : { kind: scopeKind, id: scopeId },
       includeHidden,
@@ -168,8 +172,40 @@ export function Workspace({
     tabs.reload(change.path);
   });
 
+  const resolvedScope = tree.scope;
+
+  /**
+   * Hand a file to BB's own preview panel, which resolves it through whatever
+   * file opener is installed — so a code file lands in the Monaco editor,
+   * editable, rather than in this plugin's textarea.
+   *
+   * Only the full-page surface has such a panel: BB provides the capability
+   * from the host that wraps a plugin page, and everywhere else it declines.
+   * The caller falls back to opening in-pane on `false`.
+   */
+  const delegateToBb = useCallback(
+    (path: string): boolean => {
+      if (resolvedScope === null) return false;
+      return navigate.experimental_openFilePreview({
+        target: bbTargetFor(resolvedScope, path),
+        location: null,
+      });
+    },
+    [navigate, resolvedScope],
+  );
+
   const openFile = useCallback(
     (path: string) => {
+      if (delegateToBb(path)) {
+        // BB owns the file now. Deliberately no local tab and no file in the
+        // route: a reload would otherwise reopen it here, in the editor the
+        // click just declined to use.
+        setDelegatedPath(path);
+        setFindRequest(0);
+        requestAnimationFrame(restoreFocus);
+        return;
+      }
+      setDelegatedPath(null);
       tabs.open(path);
       onOpenPath(path);
       setFindRequest(0);
@@ -183,7 +219,18 @@ export function Workspace({
       }
       requestAnimationFrame(restoreFocus);
     },
-    [onOpenPath, restoreFocus, tabs, variant],
+    [delegateToBb, onOpenPath, restoreFocus, tabs, variant],
+  );
+
+  /** Open in this pane instead — the escape hatch to editing and ⌘F. */
+  const openHere = useCallback(
+    (path: string) => {
+      setDelegatedPath(null);
+      tabs.open(path);
+      onOpenPath(path);
+      requestAnimationFrame(restoreFocus);
+    },
+    [onOpenPath, restoreFocus, tabs],
   );
 
   const closeTab = useCallback(
@@ -215,7 +262,7 @@ export function Workspace({
   );
 
   const activeTab = tabs.activeTab;
-  const resolved = tree.scope;
+  const resolved = resolvedScope;
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     const isAccel = event.metaKey || event.ctrlKey;
@@ -324,7 +371,7 @@ export function Workspace({
           >
             <Explorer
               entries={tree.entries}
-              activePath={tabs.activePath}
+              activePath={tabs.activePath ?? delegatedPath}
               isLoading={tree.status === "loading"}
               error={tree.error}
               truncated={tree.truncated}
@@ -419,18 +466,7 @@ export function Workspace({
                 label="Open in BB's file preview"
                 onClick={() => {
                   const opened = navigate.experimental_openFilePreview({
-                    target:
-                      resolved.environmentId === null
-                        ? {
-                            kind: "host",
-                            hostId: resolved.hostId,
-                            path: absolutePathFor(resolved.root, activeTab.path),
-                          }
-                        : {
-                            kind: "workspace",
-                            environmentId: resolved.environmentId,
-                            path: activeTab.path,
-                          },
+                    target: bbTargetFor(resolved, activeTab.path),
                     location: null,
                   });
                   if (!opened) {
@@ -450,6 +486,8 @@ export function Workspace({
             truncated={tree.truncated}
             excluded={tree.excluded}
             onQuickOpen={() => setIsQuickOpen(true)}
+            delegatedPath={delegatedPath}
+            onOpenHere={openHere}
           />
         ) : (
           <FileView
@@ -540,6 +578,8 @@ function EmptyEditor({
   truncated,
   excluded,
   onQuickOpen,
+  delegatedPath,
+  onOpenHere,
 }: {
   hasWorkspace: boolean;
   error: string | null;
@@ -547,7 +587,38 @@ function EmptyEditor({
   truncated: boolean;
   excluded: readonly string[];
   onQuickOpen: () => void;
+  /** The file BB's own panel is showing, when it took the last click. */
+  delegatedPath: string | null;
+  onOpenHere: (path: string) => void;
 }) {
+  if (delegatedPath !== null) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
+        <Icon
+          name="PanelRight"
+          aria-hidden
+          className="size-8 text-muted-foreground/60"
+        />
+        <p className="max-w-sm text-sm text-muted-foreground">
+          <span className="font-medium text-foreground">
+            {delegatedPath.split("/").at(-1)}
+          </span>{" "}
+          opened in BB's editor, to the right.
+        </p>
+        <p className="max-w-xs text-xs text-muted-foreground">
+          Collapse this pane to give it the width.
+        </p>
+        <button
+          type="button"
+          onClick={() => onOpenHere(delegatedPath)}
+          className="cursor-pointer rounded-md border border-border px-2.5 py-1 text-xs text-foreground hover:bg-foreground/5 focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
+        >
+          Open here instead
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
       <Icon name="Code" aria-hidden className="size-8 text-muted-foreground/60" />
@@ -623,6 +694,25 @@ function ToolbarButton({
       />
     </button>
   );
+}
+
+/**
+ * The file identity BB needs to open one of these paths itself. A project
+ * checkout has no environment, so it is addressed by host and absolute path;
+ * a worktree is addressed by its environment and a workspace-relative one.
+ */
+function bbTargetFor(resolved: ResolvedScope, relativePath: string) {
+  return resolved.environmentId === null
+    ? {
+        kind: "host" as const,
+        hostId: resolved.hostId,
+        path: absolutePathFor(resolved.root, relativePath),
+      }
+    : {
+        kind: "workspace" as const,
+        environmentId: resolved.environmentId,
+        path: relativePath,
+      };
 }
 
 function absolutePathFor(root: string, relativePath: string): string {

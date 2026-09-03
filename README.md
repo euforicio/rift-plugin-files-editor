@@ -24,8 +24,13 @@ with invented project data, so no real repository or thread titles appear in it.
 - **Project, then workspace.** Two dependent pickers — choose the project, then
   its checkout or one of its worktrees by branch name. Picking a project lands
   on its checkout.
-- **Click a file and it opens in full** — its own tab, the complete contents,
-  syntax-highlighted by BB's own source renderer, in your BB code theme.
+- **Click a file and it opens in BB's own editor**, in the panel beside the
+  page. BB resolves it through whatever file opener is installed, so with the
+  builtin **File Editor** (Monaco) plugin a code file arrives editable, with its
+  own find and ⌘S. *Open here instead* brings it back into this pane.
+  Beside a thread there is no such panel, so files open in this pane directly —
+  its own tab, the complete contents, syntax-highlighted by BB's own source
+  renderer, in your BB code theme.
 - **Edit and save.** The pencil switches the pane to an editor;
   <kbd>⌘S</kbd> writes. Saves are guarded by the hash the file had when you
   opened it, so if an agent edited it underneath you the save stops and offers
@@ -102,10 +107,10 @@ route encoding. `server.ts` is mostly wiring; the components are the view.
   Past that it prints what fits — whole lines, for a listing — and says how much
   it cut. BB discards an oversize result rather than truncating it, so the
   clipping is the difference between a partial answer and none.
-- The editor is a textarea with a gutter, not a code editor: no completion and
-  no multiple cursors, and find is literal text — no regex, no replace. For
-  those, BB's builtin **File Editor** (Monaco) plugin claims the file-preview
-  surface; the ↗ button in the toolbar hands it the current file.
+- This pane's editor is a textarea with a gutter, not a code editor: no
+  completion, no multiple cursors, and find is literal text — no regex, no
+  replace. That is why a click delegates to BB by default; you land here only
+  by asking to, or on a surface BB cannot open files from.
 - Reading, a find hit highlights its whole line, because line ranges are what
   BB's source viewer accepts. Editing selects the exact match.
 - Files over 4 MB open read-only.
