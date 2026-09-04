@@ -36,6 +36,14 @@ export function EditorTabs({
     <div
       role="list"
       aria-label="Open files"
+      // A trackpad swipes sideways, but a wheel only turns one way. Without
+      // this the strip is unreachable past the window edge on a plain mouse.
+      onWheel={(event) => {
+        if (event.deltaX !== 0) return;
+        const strip = event.currentTarget;
+        if (strip.scrollWidth <= strip.clientWidth) return;
+        strip.scrollLeft += event.deltaY;
+      }}
       className="flex shrink-0 items-stretch overflow-x-auto border-b border-border bg-surface-recessed"
     >
       {tabs.map((tab) => {

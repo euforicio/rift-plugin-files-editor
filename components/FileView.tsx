@@ -179,6 +179,64 @@ function TextFileView({
 
   const active = matches[index];
 
+  // SourceCode owns its scrollport, and it comes up scrolled to the END of the
+  // file — so a freshly opened file showed its last line and would not scroll
+  // down, because it was already there.
+  //
+  // One reset is not enough: the viewer settles its position after the content
+  // has been measured and highlighted, which is several frames out and not
+  // observable from here. So hold the top while the content is still growing,
+  // and let go the moment the reader touches it.
+  const viewRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (tab.isEditing) return;
+    const root = viewRef.current;
+    if (root === null) return;
+
+    let cancelled = false;
+    let observer: ResizeObserver | null = null;
+    let timer = 0;
+    let frame = 0;
+
+    const attach = () => {
+      if (cancelled) return;
+      const port = root.querySelector<HTMLElement>('[class*="overflow-y-auto"]');
+      if (port === null) {
+        frame = requestAnimationFrame(attach);
+        return;
+      }
+      port.scrollTop = 0;
+
+      const release = () => {
+        observer?.disconnect();
+        observer = null;
+        window.clearTimeout(timer);
+        port.removeEventListener("wheel", release);
+        port.removeEventListener("pointerdown", release);
+        port.removeEventListener("keydown", release);
+      };
+      port.addEventListener("wheel", release, { passive: true });
+      port.addEventListener("pointerdown", release);
+      port.addEventListener("keydown", release);
+
+      observer = new ResizeObserver(() => {
+        port.scrollTop = 0;
+      });
+      const content = port.firstElementChild;
+      if (content !== null) observer.observe(content);
+      // A backstop, in case the content never resizes and nothing is touched.
+      timer = window.setTimeout(release, 1500);
+    };
+
+    attach();
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+      observer?.disconnect();
+    };
+  }, [tab.path, tab.isEditing]);
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {isFindOpen ? (
@@ -213,6 +271,9 @@ function TextFileView({
         // it let it expand to full content height, so it never scrolled and its
         // scroll-into-view had nothing to move, which is what broke the find
         // reveal. Bounded by this column, it scrolls natively.
+        // A plain wrapper, deliberately with no overflow of its own: it exists
+        // to reach SourceCode's scrollport, not to become a second one.
+        <div ref={viewRef} className="flex min-h-0 flex-1 flex-col">
         <SourceCode
           content={content}
           path={tab.path}
@@ -226,6 +287,7 @@ function TextFileView({
           }
           className="min-h-0 flex-1 text-[13px]"
         />
+        </div>
       )}
     </div>
   );

@@ -183,17 +183,16 @@ export function Workspace({
       tabs.open(path);
       onOpenPath(path);
       setFindRequest(0);
+      // The explorer deliberately stays open: it used to collapse itself on the
+      // narrow panel to give the editor width, which meant the tree vanished
+      // under you every time you opened a file. Closing it is the toggle's job.
+      //
       // The element that held focus is routinely the one the open destroys —
-      // the empty state's button, or the previous file's textarea. Recover on
-      // both surfaces, or the root's ⌘P / ⌘S handlers stop receiving keys.
-      if (variant === "panel") {
-        // The explorer also collapses on the narrow panel, taking the clicked
-        // row with it.
-        setIsExplorerOpen(false);
-      }
+      // the empty state's button, or the previous file's textarea. Recover it,
+      // or the root's ⌘P / ⌘S handlers stop receiving keys.
       requestAnimationFrame(restoreFocus);
     },
-    [onOpenPath, restoreFocus, tabs, variant],
+    [onOpenPath, restoreFocus, tabs],
   );
 
   const closeTab = useCallback(
@@ -366,7 +365,11 @@ export function Workspace({
       // Focusable and focused on mount so ⌘P and ⌘S work before anything inside
       // has been clicked, and again after a child that had focus unmounts.
       tabIndex={-1}
-      className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden bg-background focus:outline-none"
+      // `h-full` as well as `flex-1`: flex-1 only sizes this when the host
+      // hands the surface a flex column. A thread panel tab is a definite-height
+      // box, where flex-1 does nothing, the root takes its content's height, and
+      // nothing inside it — the tree least of all — can ever scroll.
+      className="relative flex h-full min-h-0 min-w-0 flex-1 overflow-hidden bg-background focus:outline-none"
     >
       {isExplorerOpen ? (
         <>
