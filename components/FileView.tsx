@@ -208,21 +208,24 @@ function TextFileView({
           }}
         />
       ) : (
-        <div className="min-h-0 flex-1 overflow-auto">
-          <SourceCode
-            content={content}
-            path={tab.path}
-            overflow="scroll"
-            // The host viewer owns scroll-into-view, so highlighting the line
-            // is also what reveals it.
-            highlightedLines={
-              active === undefined
-                ? null
-                : { start: active.line, end: active.line }
-            }
-            className="min-h-full text-[13px]"
-          />
-        </div>
+        // Deliberately NOT wrapped in a scroll container. SourceCode's own root
+        // is `flex-1 overflow-y-auto` — it means to be the scrollport. Wrapping
+        // it let it expand to full content height, so it never scrolled and its
+        // scroll-into-view had nothing to move, which is what broke the find
+        // reveal. Bounded by this column, it scrolls natively.
+        <SourceCode
+          content={content}
+          path={tab.path}
+          overflow="scroll"
+          // The host viewer owns scroll-into-view, so highlighting the line is
+          // also what reveals it.
+          highlightedLines={
+            active === undefined
+              ? null
+              : { start: active.line, end: active.line }
+          }
+          className="min-h-0 flex-1 text-[13px]"
+        />
       )}
     </div>
   );

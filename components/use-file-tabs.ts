@@ -57,6 +57,10 @@ export interface FileTabsApi {
   open(path: string): void;
   /** Returns the tab left in front after the close. */
   close(path: string): string | null;
+  /** Closes every other tab; returns the path left active. */
+  closeOthers(path: string): string | null;
+  /** Closes every tab. */
+  closeAll(): void;
   activate(path: string): void;
   setDraft(path: string, draft: string): void;
   setEditing(path: string, isEditing: boolean): void;
@@ -195,13 +199,32 @@ export function useFileTabs(scope: ScopeRef | null): FileTabsApi {
     // Updater form, not `setTabs(remaining)`: a read or write that resolved
     // earlier in this same frame has queued a patch that has not rendered yet,
     // and a plain value would discard it — stranding that tab mid-save.
-    setTabs(remaining);
+    setTabs((live) => live.filter((tab) => tab.path !== path));
 
     if (activePathRef.current !== path) return activePathRef.current;
     // Land on the tab that slid into this slot, else the one before it.
     const nextActive = (remaining[index] ?? remaining[index - 1])?.path ?? null;
     setActivePath(nextActive);
     return nextActive;
+  }, []);
+
+  const closeOthers = useCallback((path: string): string | null => {
+    const kept = tabsRef.current.filter((tab) => tab.path === path);
+    for (const tab of tabsRef.current) {
+      if (tab.path === path) continue;
+      inFlightRead.current.delete(tab.path);
+      inFlightWrite.current.delete(tab.path);
+    }
+    setTabs((live) => live.filter((tab) => tab.path === path));
+    setActivePath(kept[0]?.path ?? null);
+    return kept[0]?.path ?? null;
+  }, []);
+
+  const closeAll = useCallback(() => {
+    inFlightRead.current.clear();
+    inFlightWrite.current.clear();
+    setTabs([]);
+    setActivePath(null);
   }, []);
 
   /**
@@ -279,6 +302,8 @@ export function useFileTabs(scope: ScopeRef | null): FileTabsApi {
     activeTab,
     open,
     close,
+    closeOthers,
+    closeAll,
     activate: setActivePath,
     setDraft: useCallback(
       (path, draft) => patch(path, (tab) => ({ ...tab, draft })),

@@ -3,6 +3,7 @@ import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import { basename } from "@/lib/tree";
 import { FileGlyph } from "./FileGlyph";
+import { TabContextMenu } from "./TabContextMenu";
 import { isDirty, type FileTab } from "./use-file-tabs";
 
 export function EditorTabs({
@@ -10,11 +11,15 @@ export function EditorTabs({
   activePath,
   onActivate,
   onClose,
+  onCloseOthers,
+  onCloseAll,
 }: {
   tabs: readonly FileTab[];
   activePath: string | null;
   onActivate: (path: string) => void;
   onClose: (path: string) => void;
+  onCloseOthers: (path: string) => void;
+  onCloseAll: () => void;
 }) {
   const activeRef = useRef<HTMLDivElement | null>(null);
 
@@ -37,8 +42,14 @@ export function EditorTabs({
         const isActive = tab.path === activePath;
         const dirty = isDirty(tab);
         return (
-          <div
+          <TabContextMenu
             key={tab.path}
+            hasOthers={tabs.length > 1}
+            onClose={() => onClose(tab.path)}
+            onCloseOthers={() => onCloseOthers(tab.path)}
+            onCloseAll={onCloseAll}
+          >
+          <div
             role="listitem"
             ref={isActive ? activeRef : undefined}
             className={cn(
@@ -87,6 +98,7 @@ export function EditorTabs({
               />
             </button>
           </div>
+          </TabContextMenu>
         );
       })}
     </div>

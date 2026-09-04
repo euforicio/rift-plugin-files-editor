@@ -16,7 +16,7 @@ import { EditorTabs } from "./EditorTabs";
 import { FileView, fileMetaLabel } from "./FileView";
 import { QuickOpen } from "./QuickOpen";
 import { WorkspacePicker } from "./WorkspacePicker";
-import { isDirty, useFileTabs } from "./use-file-tabs";
+import { isDirty, useFileTabs, type FileTab } from "./use-file-tabs";
 
 interface TreeState {
   status: "idle" | "loading" | "ready" | "error";
@@ -76,9 +76,6 @@ export function Workspace({
   // A counter, not a flag: pressing ⌘F again with the bar already open has to
   // re-focus and reselect the field, which an unchanged boolean cannot signal.
   const [findRequest, setFindRequest] = useState(0);
-  // The file handed to BB's own panel. Tracked separately from the tabs so the
-  // explorer can still show what is open without this surface holding it.
-  const [delegatedPath, setDelegatedPath] = useState<string | null>(null);
 
   const rootRef = useRef<HTMLDivElement | null>(null);
   const requestRef = useRef(0);
@@ -86,6 +83,11 @@ export function Workspace({
   // read live rather than captured.
   const onOpenPathRef = useRef(onOpenPath);
   onOpenPathRef.current = onOpenPath;
+  // Closing navigates away, but the route arrives back as a prop a render
+  // later. In that gap the route still names the file that was just closed,
+  // and the effect below would helpfully reopen it. This remembers the value
+  // to ignore until the route catches up.
+  const staleRouteFile = useRef<string | null>(null);
 
   useEffect(() => {
     rootRef.current?.focus({ preventScroll: true });
@@ -143,7 +145,6 @@ export function Workspace({
   const scopeKind = scope?.kind ?? null;
   const scopeId = scope?.id ?? null;
   useEffect(() => {
-    setDelegatedPath(null);
     loadTree(
       scopeKind === null || scopeId === null ? null : { kind: scopeKind, id: scopeId },
       includeHidden,
@@ -154,6 +155,10 @@ export function Workspace({
   // another file, and after a scope change cleared the tabs out from under it.
   const hasRoutedTab = tabs.tabs.some((tab) => tab.path === filePath);
   useEffect(() => {
+    if (staleRouteFile.current !== null) {
+      if (filePath === staleRouteFile.current) return;
+      staleRouteFile.current = null;
+    }
     if (filePath === null) return;
     if (tabs.activePath === filePath || hasRoutedTab) return;
     tabs.open(filePath);
@@ -172,40 +177,9 @@ export function Workspace({
     tabs.reload(change.path);
   });
 
-  const resolvedScope = tree.scope;
-
-  /**
-   * Hand a file to BB's own preview panel, which resolves it through whatever
-   * file opener is installed — so a code file lands in the Monaco editor,
-   * editable, rather than in this plugin's textarea.
-   *
-   * Only the full-page surface has such a panel: BB provides the capability
-   * from the host that wraps a plugin page, and everywhere else it declines.
-   * The caller falls back to opening in-pane on `false`.
-   */
-  const delegateToBb = useCallback(
-    (path: string): boolean => {
-      if (resolvedScope === null) return false;
-      return navigate.experimental_openFilePreview({
-        target: bbTargetFor(resolvedScope, path),
-        location: null,
-      });
-    },
-    [navigate, resolvedScope],
-  );
-
   const openFile = useCallback(
     (path: string) => {
-      if (delegateToBb(path)) {
-        // BB owns the file now. Deliberately no local tab and no file in the
-        // route: a reload would otherwise reopen it here, in the editor the
-        // click just declined to use.
-        setDelegatedPath(path);
-        setFindRequest(0);
-        requestAnimationFrame(restoreFocus);
-        return;
-      }
-      setDelegatedPath(null);
+      staleRouteFile.current = null;
       tabs.open(path);
       onOpenPath(path);
       setFindRequest(0);
@@ -219,22 +193,12 @@ export function Workspace({
       }
       requestAnimationFrame(restoreFocus);
     },
-    [delegateToBb, onOpenPath, restoreFocus, tabs, variant],
-  );
-
-  /** Open in this pane instead — the escape hatch to editing and ⌘F. */
-  const openHere = useCallback(
-    (path: string) => {
-      setDelegatedPath(null);
-      tabs.open(path);
-      onOpenPath(path);
-      requestAnimationFrame(restoreFocus);
-    },
-    [onOpenPath, restoreFocus, tabs],
+    [onOpenPath, restoreFocus, tabs, variant],
   );
 
   const closeTab = useCallback(
     (path: string) => {
+      staleRouteFile.current = filePath;
       const tab = tabs.tabs.find((candidate) => candidate.path === path);
       if (tab !== undefined && isDirty(tab)) {
         toast.warning(`${path} has unsaved changes`, {
@@ -250,8 +214,49 @@ export function Workspace({
       }
       onOpenPath(tabs.close(path));
     },
-    [onOpenPath, tabs],
+    [filePath, onOpenPath, tabs],
   );
+
+  /** Shared by "close others" and "close all": both can discard several drafts. */
+  const closeMany = useCallback(
+    (doomed: readonly FileTab[], run: () => string | null) => {
+      staleRouteFile.current = filePath;
+      const dirtyCount = doomed.filter(isDirty).length;
+      if (dirtyCount > 0) {
+        toast.warning(
+          dirtyCount === 1
+            ? "1 file has unsaved changes"
+            : `${dirtyCount} files have unsaved changes`,
+          {
+            action: {
+              label: "Close anyway",
+              onClick: () => onOpenPathRef.current(run()),
+            },
+          },
+        );
+        return;
+      }
+      onOpenPath(run());
+    },
+    [filePath, onOpenPath],
+  );
+
+  const closeOtherTabs = useCallback(
+    (path: string) => {
+      closeMany(
+        tabs.tabs.filter((tab) => tab.path !== path),
+        () => tabs.closeOthers(path),
+      );
+    },
+    [closeMany, tabs],
+  );
+
+  const closeAllTabs = useCallback(() => {
+    closeMany(tabs.tabs, () => {
+      tabs.closeAll();
+      return null;
+    });
+  }, [closeMany, tabs]);
 
   const activateTab = useCallback(
     (path: string) => {
@@ -262,7 +267,7 @@ export function Workspace({
   );
 
   const activeTab = tabs.activeTab;
-  const resolved = resolvedScope;
+  const resolved = tree.scope;
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     const isAccel = event.metaKey || event.ctrlKey;
@@ -371,7 +376,7 @@ export function Workspace({
           >
             <Explorer
               entries={tree.entries}
-              activePath={tabs.activePath ?? delegatedPath}
+              activePath={tabs.activePath}
               isLoading={tree.status === "loading"}
               error={tree.error}
               truncated={tree.truncated}
@@ -407,6 +412,8 @@ export function Workspace({
           activePath={tabs.activePath}
           onActivate={activateTab}
           onClose={closeTab}
+          onCloseOthers={closeOtherTabs}
+          onCloseAll={closeAllTabs}
         />
 
         <div className="flex h-9 shrink-0 items-center gap-1 border-b border-border px-2">
@@ -438,13 +445,17 @@ export function Workspace({
                 <span className="hidden px-2 text-[11px] text-muted-foreground md:inline">
                   {fileMetaLabel(activeTab)}
                 </span>
+                <ModeToggle
+                  isEditing={activeTab.isEditing}
+                  canEdit={activeTab.file.editable}
+                  onChange={(next) => tabs.setEditing(activeTab.path, next)}
+                />
                 <ToolbarButton
-                  icon={activeTab.isEditing ? "Eye" : "Edit"}
-                  label={activeTab.isEditing ? "Preview with highlighting" : "Edit this file"}
-                  isActive={activeTab.isEditing}
-                  isDisabled={!activeTab.file.editable && !activeTab.isEditing}
+                  icon="Search"
+                  label="Find in file (⌘F)"
+                  isActive={findRequest > 0}
                   onClick={() =>
-                    tabs.setEditing(activeTab.path, !activeTab.isEditing)
+                    setFindRequest((current) => (current > 0 ? 0 : current + 1))
                   }
                 />
                 <ToolbarButton
@@ -466,7 +477,18 @@ export function Workspace({
                 label="Open in BB's file preview"
                 onClick={() => {
                   const opened = navigate.experimental_openFilePreview({
-                    target: bbTargetFor(resolved, activeTab.path),
+                    target:
+                      resolved.environmentId === null
+                        ? {
+                            kind: "host",
+                            hostId: resolved.hostId,
+                            path: absolutePathFor(resolved.root, activeTab.path),
+                          }
+                        : {
+                            kind: "workspace",
+                            environmentId: resolved.environmentId,
+                            path: activeTab.path,
+                          },
                     location: null,
                   });
                   if (!opened) {
@@ -486,8 +508,6 @@ export function Workspace({
             truncated={tree.truncated}
             excluded={tree.excluded}
             onQuickOpen={() => setIsQuickOpen(true)}
-            delegatedPath={delegatedPath}
-            onOpenHere={openHere}
           />
         ) : (
           <FileView
@@ -578,8 +598,6 @@ function EmptyEditor({
   truncated,
   excluded,
   onQuickOpen,
-  delegatedPath,
-  onOpenHere,
 }: {
   hasWorkspace: boolean;
   error: string | null;
@@ -587,38 +605,7 @@ function EmptyEditor({
   truncated: boolean;
   excluded: readonly string[];
   onQuickOpen: () => void;
-  /** The file BB's own panel is showing, when it took the last click. */
-  delegatedPath: string | null;
-  onOpenHere: (path: string) => void;
 }) {
-  if (delegatedPath !== null) {
-    return (
-      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
-        <Icon
-          name="PanelRight"
-          aria-hidden
-          className="size-8 text-muted-foreground/60"
-        />
-        <p className="max-w-sm text-sm text-muted-foreground">
-          <span className="font-medium text-foreground">
-            {delegatedPath.split("/").at(-1)}
-          </span>{" "}
-          opened in BB's editor, to the right.
-        </p>
-        <p className="max-w-xs text-xs text-muted-foreground">
-          Collapse this pane to give it the width.
-        </p>
-        <button
-          type="button"
-          onClick={() => onOpenHere(delegatedPath)}
-          className="cursor-pointer rounded-md border border-border px-2.5 py-1 text-xs text-foreground hover:bg-foreground/5 focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
-        >
-          Open here instead
-        </button>
-      </div>
-    );
-  }
-
   return (
     <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
       <Icon name="Code" aria-hidden className="size-8 text-muted-foreground/60" />
@@ -652,6 +639,83 @@ function EmptyEditor({
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * Read / Edit as two labelled segments rather than one icon that swaps meaning.
+ * An icon-only toggle has to be read twice — once for the glyph, once to work
+ * out whether it shows the current mode or the one it switches to.
+ */
+function ModeToggle({
+  isEditing,
+  canEdit,
+  onChange,
+}: {
+  isEditing: boolean;
+  canEdit: boolean;
+  onChange: (isEditing: boolean) => void;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label="File mode"
+      className="flex shrink-0 items-center gap-0.5 rounded-md border border-border p-0.5"
+    >
+      <ModeSegment
+        icon="Eye"
+        label="Read"
+        isSelected={!isEditing}
+        onClick={() => onChange(false)}
+      />
+      <ModeSegment
+        icon="Edit"
+        label="Edit"
+        isSelected={isEditing}
+        // A file too large to edit stays readable; the segment says why.
+        isDisabled={!canEdit && !isEditing}
+        title={canEdit ? undefined : "This file is too large to edit"}
+        onClick={() => onChange(true)}
+      />
+    </div>
+  );
+}
+
+function ModeSegment({
+  icon,
+  label,
+  isSelected,
+  isDisabled,
+  title,
+  onClick,
+}: {
+  icon: React.ComponentProps<typeof Icon>["name"];
+  label: string;
+  isSelected: boolean;
+  isDisabled?: boolean;
+  title?: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={isDisabled}
+      aria-pressed={isSelected}
+      title={title ?? label}
+      className={cn(
+        "flex h-6 items-center gap-1 rounded px-1.5 text-[11px] font-medium transition-colors",
+        "focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none",
+        isDisabled === true
+          ? "cursor-default text-muted-foreground opacity-40"
+          : isSelected
+            ? "cursor-pointer bg-state-active text-foreground"
+            : "cursor-pointer text-muted-foreground hover:text-foreground",
+      )}
+    >
+      <Icon name={icon} aria-hidden className="size-3" />
+      <span className="hidden sm:inline">{label}</span>
+    </button>
   );
 }
 
@@ -694,25 +758,6 @@ function ToolbarButton({
       />
     </button>
   );
-}
-
-/**
- * The file identity BB needs to open one of these paths itself. A project
- * checkout has no environment, so it is addressed by host and absolute path;
- * a worktree is addressed by its environment and a workspace-relative one.
- */
-function bbTargetFor(resolved: ResolvedScope, relativePath: string) {
-  return resolved.environmentId === null
-    ? {
-        kind: "host" as const,
-        hostId: resolved.hostId,
-        path: absolutePathFor(resolved.root, relativePath),
-      }
-    : {
-        kind: "workspace" as const,
-        environmentId: resolved.environmentId,
-        path: relativePath,
-      };
 }
 
 function absolutePathFor(root: string, relativePath: string): string {
