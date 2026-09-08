@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useRpc } from "@get-bb/plugin-sdk/app";
+import { useRpc } from "@riftlabs/plugin-sdk/app";
 import type { rpcContract } from "../server.js";
 import type { ScopeRef } from "@/lib/route";
 import { sameScope } from "@/lib/route";

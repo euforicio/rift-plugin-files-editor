@@ -5,8 +5,8 @@ import { fileURLToPath } from "node:url";
 import {
   defineRpcContract,
   PLUGIN_CLI_OUTPUT_MAX_BYTES,
-  type BbPluginApi,
-} from "@get-bb/plugin-sdk";
+  type RiftPluginApi,
+} from "@riftlabs/plugin-sdk";
 import { z } from "zod";
 import type { FlatEntry } from "./lib/tree.js";
 import { rankEntries } from "./lib/tree.js";
@@ -159,8 +159,8 @@ export const rpcContract = defineRpcContract({
 export type ResolvedScope = z.infer<typeof resolvedScopeSchema>;
 export type WorkspaceOption = z.infer<typeof workspaceSchema>;
 
-export default function plugin(bb: BbPluginApi) {
-  const settings = bb.settings.define({
+export default function plugin(rift: RiftPluginApi) {
+  const settings = rift.settings.define({
     excludedDirectories: {
       type: "string",
       label: "Excluded directories (one name per line)",
@@ -188,7 +188,7 @@ export default function plugin(bb: BbPluginApi) {
    */
   async function localHostId(): Promise<string | null> {
     if (cachedLocalHostId !== null) return cachedLocalHostId;
-    const { dataDir } = await bb.sdk.system.config();
+    const { dataDir } = await rift.sdk.system.config();
     try {
       const value = (
         await readFile(path.join(dataDir, "host-id"), "utf8")
@@ -204,7 +204,7 @@ export default function plugin(bb: BbPluginApi) {
 
   async function hostName(hostId: string): Promise<string> {
     try {
-      const host = await bb.sdk.hosts.get({ hostId });
+      const host = await rift.sdk.hosts.get({ hostId });
       return host.name;
     } catch {
       return "this machine";
@@ -217,9 +217,9 @@ export default function plugin(bb: BbPluginApi) {
    */
   async function project(projectId: string) {
     try {
-      return await bb.sdk.projects.get({ projectId });
+      return await rift.sdk.projects.get({ projectId });
     } catch {
-      const projects = await bb.sdk.projects.list({ includePersonal: true });
+      const projects = await rift.sdk.projects.list({ includePersonal: true });
       return projects.find((entry) => entry.id === projectId) ?? null;
     }
   }
@@ -246,7 +246,7 @@ export default function plugin(bb: BbPluginApi) {
     let projectId: string | null = null;
 
     if (scope.kind === "thread") {
-      const thread = await bb.sdk.threads.get({ threadId: scope.id });
+      const thread = await rift.sdk.threads.get({ threadId: scope.id });
       environmentId = thread.environmentId;
       projectId = thread.projectId;
     } else if (scope.kind === "environment") {
@@ -256,7 +256,7 @@ export default function plugin(bb: BbPluginApi) {
     }
 
     if (environmentId !== null) {
-      const environment = await bb.sdk.environments.get({ environmentId });
+      const environment = await rift.sdk.environments.get({ environmentId });
       if (environment.path !== null) {
         const owner = await project(environment.projectId);
         const local = await localHostId();
@@ -333,7 +333,7 @@ export default function plugin(bb: BbPluginApi) {
         // The id file said this machine but the directory is not readable here
         // (EACCES, EPERM, EMFILE). Let BB try — it knows how to reach the host
         // even when node:fs cannot.
-        bb.log.warn(
+        rift.log.warn(
           `local walk of ${scope.root} failed (${describe(error)}); falling back to BB's listing`,
         );
       }
@@ -341,7 +341,7 @@ export default function plugin(bb: BbPluginApi) {
 
     // Remote workspaces go through BB, which walks the host daemon. It applies
     // its own dotfile and node_modules filtering that a plugin cannot turn off.
-    const result = await bb.sdk.files.listPaths({
+    const result = await rift.sdk.files.listPaths({
       hostId: scope.hostId,
       path: scope.root,
       includeFiles: true,
@@ -356,7 +356,7 @@ export default function plugin(bb: BbPluginApi) {
 
   async function readWorkspaceFile(scope: ResolvedScope, relativePath: string) {
     const absolutePath = resolveWithinRoot(scope.root, relativePath);
-    const file = await bb.sdk.files.read({
+    const file = await rift.sdk.files.read({
       hostId: scope.hostId,
       path: absolutePath,
       rootPath: scope.root,
@@ -423,18 +423,18 @@ export default function plugin(bb: BbPluginApi) {
     ].find((candidate) => existsSync(path.join(candidate, "preview.png")));
     if (root === undefined) throw new Error("The preview image is not installed.");
 
-    previewCache = await bb.sdk.files.createPreview({
+    previewCache = await rift.sdk.files.createPreview({
       rootPath: root,
       ttlMs: PREVIEW_TTL_MS,
     });
     return previewCache;
   }
 
-  bb.rpc.register(rpcContract, {
+  rift.rpc.register(rpcContract, {
     async workspaces() {
       // One request gives every project, its checkouts, and the environments
       // its threads run in — which is where a worktree's branch name lives.
-      const projects = await bb.sdk.projects.list({
+      const projects = await rift.sdk.projects.list({
         include: "threads",
         includePersonal: true,
       });
@@ -511,7 +511,7 @@ export default function plugin(bb: BbPluginApi) {
       if (!resolved.ok) throw new Error(resolved.reason);
 
       const absolutePath = resolveWithinRoot(resolved.scope.root, relativePath);
-      const result = await bb.sdk.files.write({
+      const result = await rift.sdk.files.write({
         hostId: resolved.scope.hostId,
         path: absolutePath,
         rootPath: resolved.scope.root,
@@ -528,12 +528,12 @@ export default function plugin(bb: BbPluginApi) {
         };
       }
 
-      bb.realtime.publish(CHANGED_CHANNEL, {
+      rift.realtime.publish(CHANGED_CHANNEL, {
         scope,
         path: relativePath,
         sha256: result.sha256,
       });
-      bb.log.info(`wrote ${absolutePath}`);
+      rift.log.info(`wrote ${absolutePath}`);
       return {
         outcome: "written" as const,
         sha256: result.sha256,
@@ -542,29 +542,29 @@ export default function plugin(bb: BbPluginApi) {
     },
   });
 
-  bb.cli.register({
+  rift.cli.register({
     name: "files",
     summary: "Browse and read the files of a thread's workspace",
     commands: [
       {
         name: "tree",
         summary: "List the workspace's files",
-        usage: "bb files tree [--depth <n>] [--all] [--limit <n>]",
+        usage: "rift files tree [--depth <n>] [--all] [--limit <n>]",
       },
       {
         name: "find",
         summary: "Fuzzy-find files by path",
-        usage: "bb files find <query> [--limit <n>]",
+        usage: "rift files find <query> [--limit <n>]",
       },
       {
         name: "read",
         summary: "Print a file relative to the workspace root",
-        usage: "bb files read <path>",
+        usage: "rift files read <path>",
       },
       {
         name: "root",
         summary: "Print the resolved workspace root and machine",
-        usage: "bb files root",
+        usage: "rift files root",
       },
     ],
     async run(argv, ctx) {
@@ -631,7 +631,7 @@ export default function plugin(bb: BbPluginApi) {
         case "find": {
           const query = flags.positional.join(" ");
           if (query === "") {
-            return { exitCode: 1, stderr: "Usage: bb files find <query>\n" };
+            return { exitCode: 1, stderr: "Usage: rift files find <query>\n" };
           }
           const listed = await listEntries(resolved.scope, true);
           const files = listed.entries.filter((entry) => entry.kind === "file");
@@ -657,7 +657,7 @@ export default function plugin(bb: BbPluginApi) {
         case "read": {
           const target = flags.positional[0];
           if (target === undefined) {
-            return { exitCode: 1, stderr: "Usage: bb files read <path>\n" };
+            return { exitCode: 1, stderr: "Usage: rift files read <path>\n" };
           }
           const file = await readWorkspaceFile(resolved.scope, target);
           if (file.kind !== "text") {
@@ -682,7 +682,7 @@ export default function plugin(bb: BbPluginApi) {
           return {
             exitCode: 1,
             stderr:
-              "Usage: bb files <root|tree|find|read> [...]\nRun `bb files root` to see the resolved workspace.\n",
+              "Usage: rift files <root|tree|find|read> [...]\nRun `rift files root` to see the resolved workspace.\n",
           };
       }
     },

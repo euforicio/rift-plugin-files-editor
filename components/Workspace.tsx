@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  useBbNavigate,
+  useRiftNavigate,
   useRealtime,
   useRpc,
-} from "@get-bb/plugin-sdk/app";
+} from "@riftlabs/plugin-sdk/app";
 import { toast } from "sonner";
 import { Icon } from "@/components/ui/icon";
 import { cn, formatHomePathForDisplay } from "@/lib/utils";
@@ -63,7 +63,7 @@ export function Workspace({
   variant,
 }: WorkspaceProps) {
   const rpc = useRpc<typeof rpcContract>();
-  const navigate = useBbNavigate();
+  const navigate = useRiftNavigate();
   const tabs = useFileTabs(scope);
 
   const [tree, setTree] = useState<TreeState>(EMPTY_TREE);

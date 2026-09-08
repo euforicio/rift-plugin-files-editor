@@ -8,3 +8,7 @@ scratch/
 __scratch__/
 *.scratch.*
 *scratch*.config.ts
+
+node_modules/
+node_modules.dev/
+toolchain-*/

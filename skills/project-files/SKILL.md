@@ -6,7 +6,7 @@ description: Browse and read files in the current thread's workspace with the `b
 # Reading the thread's workspace
 
 `bb files` resolves the workspace behind the current thread — its worktree when
-it has one, otherwise the project's default checkout — and reads it through BB,
+it has one, otherwise the project's default checkout — and reads it through Rift,
 so it works the same whether that workspace is on this machine or a connected
 one.
 

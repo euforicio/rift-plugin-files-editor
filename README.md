@@ -26,7 +26,7 @@ with invented project data, so no real repository or thread titles appear in it.
   its checkout or one of its worktrees by branch name. Picking a project lands
   on its checkout.
 - **Click a file and it opens in full** — its own tab, the complete contents,
-  syntax-highlighted by BB's own source renderer, in your BB code theme.
+  syntax-highlighted by Rift's own source renderer, in your Rift code theme.
 - **Edit and save.** A Read / Edit toggle switches the pane to an editor;
   <kbd>⌘S</kbd> writes. Saves are guarded by the hash the file had when you
   opened it, so if an agent edited it underneath you the save stops and offers
@@ -36,13 +36,13 @@ with invented project data, so no real repository or thread titles appear in it.
 
 ## Dotfiles
 
-BB's own recursive listing drops every name starting with `.`, which is why
+Rift's own recursive listing drops every name starting with `.`, which is why
 `.github`, `.env.example`, and `.gitignore` are missing from other file trees in
-the app. For a workspace on the machine BB's server runs on, this plugin walks
+the app. For a workspace on the machine Rift's server runs on, this plugin walks
 the directory itself and shows them; the eye toggle in the explorer turns them
 off.
 
-A workspace on a *connected* machine has to go through BB's listing, so dotfiles
+A workspace on a *connected* machine has to go through Rift's listing, so dotfiles
 are not available there and the toggle is hidden. The explorer says which mode
 it is in.
 
@@ -56,7 +56,7 @@ bb files read <path>
 ```
 
 Everything resolves against the thread the command runs in: its worktree when it
-has one, otherwise the project's default checkout. It reads through BB, so it
+has one, otherwise the project's default checkout. It reads through Rift, so it
 returns the right bytes even when that workspace lives on another machine —
 which is exactly when `ls` and `cat` would quietly read the wrong disk.
 
@@ -95,19 +95,19 @@ route encoding. `server.ts` is mostly wiring; the components are the view.
 
 ## Limits
 
-- The local walk stops at 40,000 entries and BB's remote listing at 10,000, and
+- The local walk stops at 40,000 entries and Rift's remote listing at 10,000, and
   the explorer mounts at most 600 rows at a time. The footer says when either
   limit is in play; widening *Excluded directories* is the fix for a truncated
   listing.
-- Every `bb files` command is capped by BB's 1 MB limit on a command's output.
+- Every `bb files` command is capped by Rift's 1 MB limit on a command's output.
   Past that it prints what fits — whole lines, for a listing — and says how much
-  it cut. BB discards an oversize result rather than truncating it, so the
+  it cut. Rift discards an oversize result rather than truncating it, so the
   clipping is the difference between a partial answer and none.
 - The editor is a textarea with a gutter, not a code editor: no completion and
   no multiple cursors, and find is literal text — no regex, no replace. For
-  those, BB's builtin **File Editor** (Monaco) plugin claims the file-preview
+  those, Rift's builtin **File Editor** (Monaco) plugin claims the file-preview
   surface; the ↗ button in the toolbar hands it the current file.
 - Reading, a find hit highlights its whole line, because line ranges are what
-  BB's source viewer accepts. Editing selects the exact match.
+  Rift's source viewer accepts. Editing selects the exact match.
 - Files over 4 MB open read-only.
 - The tree does not create, rename, or delete files.

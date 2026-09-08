@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { experimental_SourceCode as SourceCode } from "@get-bb/plugin-sdk/app";
+import { experimental_SourceCode as SourceCode } from "@riftlabs/plugin-sdk/app";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import { formatBytes, languageLabel } from "@/lib/file-kind";

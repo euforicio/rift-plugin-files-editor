@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useRpc } from "@get-bb/plugin-sdk/app";
+import { useRpc } from "@riftlabs/plugin-sdk/app";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import type { ScopeRef } from "@/lib/route";

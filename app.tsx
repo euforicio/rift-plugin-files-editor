@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   definePluginApp,
-  useBbContext,
-  useBbNavigate,
+  useRiftContext,
+  useRiftNavigate,
   useRpc,
   type PluginNavPanelProps,
   type PluginThreadPanelProps,
-} from "@get-bb/plugin-sdk/app";
+} from "@riftlabs/plugin-sdk/app";
 import { toast } from "sonner";
 // Statically imported so the explorer's folder/file glyphs paint on the first
 // frame instead of flashing empty while the extended registry loads.
@@ -23,8 +23,8 @@ const LAST_SCOPE_KEY = "files-editor:last-scope";
  * file, so back/forward walk the files you opened and a link survives a reload.
  */
 function FilesPage({ subPath }: PluginNavPanelProps) {
-  const navigate = useBbNavigate();
-  const context = useBbContext();
+  const navigate = useRiftNavigate();
+  const context = useRiftContext();
   const rpc = useRpc<typeof rpcContract>();
   const route = useMemo(() => parseRoute(subPath), [subPath]);
 
